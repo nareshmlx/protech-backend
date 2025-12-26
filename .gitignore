@@ -50,7 +50,8 @@ uv.lock
 *.mov
 *.wmv
 
-
+# Directories to ignore
 tests/
 migrations/
 domain/
+docs/
