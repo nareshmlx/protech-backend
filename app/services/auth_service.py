@@ -136,28 +136,15 @@ class AuthService:
     async def refresh_access_token(self, refresh_token: str) -> Dict[str, str]:
         """Refresh access token using refresh token.
 
-        Args:
-            refresh_token: Valid refresh token
-
-        Returns:
-            Dictionary with new access token
-
-        Raises:
-            InvalidTokenError: Token is invalid or wrong type
-            TokenExpiredError: Refresh token has expired
-            UserNotFoundError: User not found
-            InactiveUserError: User account is inactive
+        Production-grade behavior:
+        - Verify token is a refresh token
+        - Issue a new access token
+        - Rotate refresh token (issue a new refresh token)
         """
         try:
-            # Decode refresh token
-            payload = token_service.decode_token(refresh_token)
+            # Decode refresh token (MUST be refresh type)
+            payload = token_service.decode_token(refresh_token, expected_type="refresh")
 
-            # Validate token type
-            if not token_service.validate_token_type(payload, "refresh"):
-                logger.warning("Token refresh failed: invalid token type")
-                raise InvalidTokenError("Invalid token type")
-
-            # Get user
             user_id = payload.get("sub")
             user = await self.user_repository.get_by_id(user_id)
 
@@ -165,22 +152,23 @@ class AuthService:
                 logger.warning(f"Token refresh failed: user not found - {user_id}")
                 raise UserNotFoundError()
 
-            # Check if user is active
             if not user.is_active:
                 logger.warning(f"Token refresh failed: inactive user - {user.email}")
                 raise InactiveUserError()
 
-            # Generate new access token
-            access_token = token_service.create_access_token(
+            # Issue new tokens (rotate refresh token)
+            new_access_token = token_service.create_access_token(
                 str(user.id),
-                user.role.value
+                user.role.value,
             )
+            new_refresh_token = token_service.create_refresh_token(str(user.id))
 
-            logger.info(f"Access token refreshed for user: {user.email}")
+            logger.info("Tokens refreshed for user: %s", user.email)
 
             return {
-                "access_token": access_token,
-                "token_type": "bearer"
+                "access_token": new_access_token,
+                "refresh_token": new_refresh_token,
+                "token_type": "bearer",
             }
 
         except jwt.ExpiredSignatureError:
